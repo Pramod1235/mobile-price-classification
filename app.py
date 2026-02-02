@@ -1,10 +1,9 @@
-
 import streamlit as st
 import pandas as pd
-import numpy as np
+import os
+import joblib
 
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
     accuracy_score,
     roc_auc_score,
@@ -15,156 +14,127 @@ from sklearn.metrics import (
     confusion_matrix
 )
 
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.naive_bayes import GaussianNB
-from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
-
-import seaborn as sns
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 # -----------------------------------
-# Streamlit Page Config
+# Page config
 # -----------------------------------
 st.set_page_config(page_title="Mobile Price Classification", layout="wide")
 
 st.title("📱 Mobile Price Classification App")
-st.write("Predict mobile price range using multiple ML models")
+st.write("Predict mobile price range using pre-trained ML models")
 
 # -----------------------------------
-# Upload Dataset
+# Load models safely
+# -----------------------------------
+MODEL_DIR = "model"
+
+@st.cache_resource
+def load_models():
+    try:
+        scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
+
+        models = {
+            "Logistic Regression": joblib.load(f"{MODEL_DIR}/logistic_regression.pkl"),
+            "Decision Tree": joblib.load(f"{MODEL_DIR}/decision_tree.pkl"),
+            "KNN": joblib.load(f"{MODEL_DIR}/knn.pkl"),
+            "Naive Bayes": joblib.load(f"{MODEL_DIR}/naive_bayes.pkl"),
+            "Random Forest": joblib.load(f"{MODEL_DIR}/random_forest.pkl"),
+            "XGBoost": joblib.load(f"{MODEL_DIR}/xgboost.pkl"),
+        }
+        return scaler, models
+
+    except Exception as e:
+        st.error(f"❌ Model loading failed: {e}")
+        st.stop()
+
+scaler, models = load_models()
+
+# -----------------------------------
+# Upload CSV
 # -----------------------------------
 uploaded_file = st.file_uploader(
-    "Upload Mobile Price CSV (with price_range column)",
+    "Upload Mobile Price CSV (must contain price_range column)",
     type=["csv"]
 )
 
-if uploaded_file is not None:
+if uploaded_file is None:
+    st.info("👆 Please upload the dataset to continue")
+    st.stop()
 
-    df = pd.read_csv(uploaded_file)
-    st.subheader("📊 Dataset Preview")
-    st.dataframe(df.head())
+# -----------------------------------
+# Read dataset
+# -----------------------------------
+df = pd.read_csv(uploaded_file)
 
-    # -----------------------------------
-    # Split Features & Target
-    # -----------------------------------
-    X = df.drop("price_range", axis=1)
-    y = df["price_range"]
+st.subheader("📊 Dataset Preview")
+st.dataframe(df.head())
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+# -----------------------------------
+# Feature / target split
+# -----------------------------------
+if "price_range" not in df.columns:
+    st.error("❌ Dataset must contain 'price_range' column")
+    st.stop()
 
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
+X = df.drop("price_range", axis=1)
+y = df["price_range"]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# -----------------------------------
+# Model selection (MUST be before usage)
+# -----------------------------------
+model_name = st.selectbox(
+    "Select Classification Model",
+    list(models.keys())
+)
+
+model = models[model_name]
+
+# -----------------------------------
+# Prediction
+# -----------------------------------
+if model_name in ["Logistic Regression", "KNN"]:
     X_test_scaled = scaler.transform(X_test)
-
-    # -----------------------------------
-    # Model Selection
-    # -----------------------------------
-    model_name = st.selectbox(
-        "Select Classification Model",
-        (
-            "Logistic Regression",
-            "Decision Tree",
-            "KNN",
-            "Naive Bayes",
-            "Random Forest",
-            "XGBoost"
-        )
-    )
-
-    # -----------------------------------
-    # Model Initialization
-    # -----------------------------------
-    if model_name == "Logistic Regression":
-        model = LogisticRegression(max_iter=1000)
-        model.fit(X_train_scaled, y_train)
-        y_pred = model.predict(X_test_scaled)
-        y_prob = model.predict_proba(X_test_scaled)
-
-    elif model_name == "Decision Tree":
-        model = DecisionTreeClassifier(random_state=42)
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        y_prob = model.predict_proba(X_test)
-
-    elif model_name == "KNN":
-        model = KNeighborsClassifier(n_neighbors=5)
-        model.fit(X_train_scaled, y_train)
-        y_pred = model.predict(X_test_scaled)
-        y_prob = model.predict_proba(X_test_scaled)
-
-    elif model_name == "Naive Bayes":
-        model = GaussianNB()
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        y_prob = model.predict_proba(X_test)
-
-    elif model_name == "Random Forest":
-        model = RandomForestClassifier(n_estimators=200, random_state=42)
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        y_prob = model.predict_proba(X_test)
-
-    else:  # XGBoost
-        model = XGBClassifier(
-            objective="multi:softprob",
-            num_class=4,
-            eval_metric="mlogloss",
-            random_state=42
-        )
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        y_prob = model.predict_proba(X_test)
-
-    # -----------------------------------
-    # Evaluation Metrics
-    # -----------------------------------
-    accuracy = accuracy_score(y_test, y_pred)
-    auc = roc_auc_score(y_test, y_prob, multi_class="ovr")
-    precision = precision_score(y_test, y_pred, average="weighted")
-    recall = recall_score(y_test, y_pred, average="weighted")
-    f1 = f1_score(y_test, y_pred, average="weighted")
-    mcc = matthews_corrcoef(y_test, y_pred)
-
-    # -----------------------------------
-    # Display Metrics
-    # -----------------------------------
-    st.subheader("📈 Model Performance Metrics")
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Accuracy", f"{accuracy:.4f}")
-    col1.metric("AUC", f"{auc:.4f}")
-
-    col2.metric("Precision", f"{precision:.4f}")
-    col2.metric("Recall", f"{recall:.4f}")
-
-    col3.metric("F1 Score", f"{f1:.4f}")
-    col3.metric("MCC", f"{mcc:.4f}")
-
-    # -----------------------------------
-    # Confusion Matrix
-    # -----------------------------------
-    st.subheader("🔍 Confusion Matrix")
-
-    cm = confusion_matrix(y_test, y_pred)
-
-    fig, ax = plt.subplots()
-    sns.heatmap(
-        cm,
-        annot=True,
-        fmt="d",
-        cmap="Blues",
-        ax=ax
-    )
-    ax.set_xlabel("Predicted")
-    ax.set_ylabel("Actual")
-
-    st.pyplot(fig)
-
+    y_pred = model.predict(X_test_scaled)
+    y_prob = model.predict_proba(X_test_scaled)
 else:
-    st.info("👆 Please upload the Mobile Price dataset CSV file")
+    y_pred = model.predict(X_test)
+    y_prob = model.predict_proba(X_test)
 
+# -----------------------------------
+# Metrics
+# -----------------------------------
+accuracy = accuracy_score(y_test, y_pred)
+auc = roc_auc_score(y_test, y_prob, multi_class="ovr")
+precision = precision_score(y_test, y_pred, average="weighted")
+recall = recall_score(y_test, y_pred, average="weighted")
+f1 = f1_score(y_test, y_pred, average="weighted")
+mcc = matthews_corrcoef(y_test, y_pred)
+
+st.subheader("📈 Model Performance Metrics")
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Accuracy", f"{accuracy:.4f}")
+c1.metric("AUC", f"{auc:.4f}")
+c2.metric("Precision", f"{precision:.4f}")
+c2.metric("Recall", f"{recall:.4f}")
+c3.metric("F1 Score", f"{f1:.4f}")
+c3.metric("MCC", f"{mcc:.4f}")
+
+# -----------------------------------
+# Confusion Matrix
+# -----------------------------------
+st.subheader("🔍 Confusion Matrix")
+
+cm = confusion_matrix(y_test, y_pred)
+fig, ax = plt.subplots()
+sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
+ax.set_xlabel("Predicted")
+ax.set_ylabel("Actual")
+
+st.pyplot(fig)
