@@ -23,7 +23,7 @@ import seaborn as sns
 st.set_page_config(page_title="Mobile Price Classification", layout="wide")
 
 st.title("📱 Mobile Price Classification App")
-st.write("Predict mobile price range using pre-trained ML models")
+st.write("Evaluate multiple ML models and predict mobile price range")
 
 # -----------------------------------
 # Load models safely
@@ -32,27 +32,21 @@ MODEL_DIR = "model"
 
 @st.cache_resource
 def load_models():
-    try:
-        scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
-
-        models = {
-            "Logistic Regression": joblib.load(f"{MODEL_DIR}/logistic_regression.pkl"),
-            "Decision Tree": joblib.load(f"{MODEL_DIR}/decision_tree.pkl"),
-            "KNN": joblib.load(f"{MODEL_DIR}/knn.pkl"),
-            "Naive Bayes": joblib.load(f"{MODEL_DIR}/naive_bayes.pkl"),
-            "Random Forest": joblib.load(f"{MODEL_DIR}/random_forest.pkl"),
-            "XGBoost": joblib.load(f"{MODEL_DIR}/xgboost.pkl"),
-        }
-        return scaler, models
-
-    except Exception as e:
-        st.error(f"❌ Model loading failed: {e}")
-        st.stop()
+    scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
+    models = {
+        "Logistic Regression": joblib.load(f"{MODEL_DIR}/logistic_regression.pkl"),
+        "Decision Tree": joblib.load(f"{MODEL_DIR}/decision_tree.pkl"),
+        "KNN": joblib.load(f"{MODEL_DIR}/knn.pkl"),
+        "Naive Bayes": joblib.load(f"{MODEL_DIR}/naive_bayes.pkl"),
+        "Random Forest": joblib.load(f"{MODEL_DIR}/random_forest.pkl"),
+        "XGBoost": joblib.load(f"{MODEL_DIR}/xgboost.pkl"),
+    }
+    return scaler, models
 
 scaler, models = load_models()
 
 # -----------------------------------
-# Upload CSV
+# Dataset upload
 # -----------------------------------
 uploaded_file = st.file_uploader(
     "Upload Mobile Price CSV (must contain price_range column)",
@@ -60,12 +54,9 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is None:
-    st.info("👆 Please upload the dataset to continue")
+    st.info("👆 Please upload a dataset to continue")
     st.stop()
 
-# -----------------------------------
-# Read dataset
-# -----------------------------------
 df = pd.read_csv(uploaded_file)
 
 st.subheader("📊 Dataset Preview")
@@ -86,7 +77,7 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 # -----------------------------------
-# Model selection (MUST be before usage)
+# Model selection
 # -----------------------------------
 model_name = st.selectbox(
     "Select Classification Model",
@@ -96,7 +87,7 @@ model_name = st.selectbox(
 model = models[model_name]
 
 # -----------------------------------
-# Prediction
+# Predictions
 # -----------------------------------
 if model_name in ["Logistic Regression", "KNN"]:
     X_test_scaled = scaler.transform(X_test)
@@ -136,5 +127,45 @@ fig, ax = plt.subplots()
 sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
 ax.set_xlabel("Predicted")
 ax.set_ylabel("Actual")
-
 st.pyplot(fig)
+
+# ======================================================
+# EXTRA FEATURE: Custom Mobile Price Prediction
+# ======================================================
+st.markdown("---")
+st.subheader("📱 Test Mobile Price with Custom Inputs")
+st.write("Adjust the feature values to predict the mobile price range.")
+
+input_data = {}
+
+for col in X.columns:
+    min_val = int(X[col].min())
+    max_val = int(X[col].max())
+    default_val = int(X[col].mean())
+
+    input_data[col] = st.slider(
+        col,
+        min_value=min_val,
+        max_value=max_val,
+        value=default_val
+    )
+
+input_df = pd.DataFrame([input_data])
+
+if st.button("Predict Price Range"):
+    if model_name in ["Logistic Regression", "KNN"]:
+        input_scaled = scaler.transform(input_df)
+        prediction = model.predict(input_scaled)
+    else:
+        prediction = model.predict(input_df)
+
+    price_map = {
+        0: "Low Cost",
+        1: "Medium Cost",
+        2: "High Cost",
+        3: "Very High Cost"
+    }
+
+    st.success(
+        f"💰 Predicted Mobile Price Range: **{price_map[int(prediction[0])]}**"
+    )
