@@ -81,7 +81,3 @@ The repository contains:
 - Model implementation code
 
 ---
-
-## Execution Environment
-The assignment was executed on **BITS Virtual Lab**, and a screenshot of execution
-has been captured as proof, as required.
